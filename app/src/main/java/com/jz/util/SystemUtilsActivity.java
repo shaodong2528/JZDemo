@@ -1,6 +1,10 @@
 package com.jz.util;
 
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -13,6 +17,8 @@ import android.net.ConnectivityManager;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.telephony.PhoneStateListener;
 import android.telephony.SignalStrength;
 import android.telephony.TelephonyManager;
@@ -26,12 +32,21 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.jz.util.check.LocationHelper;
 import com.jz.util.utils.SystemUtils;
 import com.jz.util.utils.WifiUtils;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.UUID;
 
 public class SystemUtilsActivity extends AppCompatActivity implements View.OnClickListener, LocationHelper.GpsCallbacks {
 
@@ -44,9 +59,50 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
     private int currentLevel;
     private ImageView vSimIcon;
     private MediaPlayer mMediaPlayer;
-    private TextView vWifiName,vWifiPwd,vWifiConnet,vWifiConnectStatus;
-    private String mWifiName,mWifiPwd;
+    private TextView vWifiName,vWifiConnectStatus;
+    private String mWifiName,mWifiPwd,mBlueName;
     private WifiManager wifiManager;
+    private final int BLUE_START_SCAN = 0;
+    private final int BLUE_STOP_SCAN = 1;
+    private final int BLUE_RETRY = 2;
+    private String mAddress;
+    private Map<String,String> blueList = new HashMap<>();
+    private RecyclerView vRecycler;
+    private Handler mHandler = new Handler(){
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            super.handleMessage(msg);
+            switch (msg.what){
+                case BLUE_RETRY:
+                    mBlueAdapter.enable();
+                    if(mBlueAdapter.isEnabled()){
+                        vBlueStatue.setText("Blue状态：已开启");
+                        vBlueStatue.setTextColor(Color.parseColor("#000000"));
+                        mHandler.sendEmptyMessageDelayed(BLUE_START_SCAN,1000);
+                    }
+                    break;
+                case BLUE_START_SCAN:   //开始扫描
+                    searchBlueDevices();
+                    mHandler.sendEmptyMessageDelayed(BLUE_STOP_SCAN,5000);
+                    break;
+                case BLUE_STOP_SCAN:    //停止扫描
+                    mBlueAdapter.cancelDiscovery();
+                    if(blueList.size()==0){
+                        Toast.makeText(SystemUtilsActivity.this,"重新扫描",Toast.LENGTH_LONG).show();
+                        mBlueAdapter.startDiscovery();
+                        mHandler.sendEmptyMessageDelayed(BLUE_STOP_SCAN,5000);
+                    }else{
+                        ArrayList<ItemBean> lists = new ArrayList<>();
+                        for (String key : blueList.keySet()){
+                            lists.add(new ItemBean(key,blueList.get(key)));
+                        }
+                        findViewById(R.id.tv_loading).setVisibility(View.GONE);
+                        vRecycler.setAdapter(new BlueAdapter(lists,SystemUtilsActivity.this));
+                    }
+                    break;
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,35 +119,20 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
         vWifiStatue = findViewById(R.id.tv_wifi_statue);
         vBlueStatue = findViewById(R.id.tv_blue_statue);
         vGpsNum = findViewById(R.id.tv_gps_info);
-        vGpsStatue = findViewById(R.id.tv_gps_statue);
+        vGpsStatue = findViewById(R.id.tv_gps);
         vSimStatue = findViewById(R.id.tv_sim_sing);
         vSimIcon = findViewById(R.id.sim_icon);
         vWifiName = findViewById(R.id.tv_wifi_name);
-        vWifiPwd = findViewById(R.id.tv_wifi_pwd);
-        vWifiConnet = findViewById(R.id.tv_connect_wifi);
-        vWifiConnectStatus = findViewById(R.id.tv_wifi_isconnect);
         mWifiName =  SystemUtils.getProp("persist.wifi.name", "");
         mWifiPwd =  SystemUtils.getProp("persist.wifi.pwd", "");
-        if(!TextUtils.isEmpty(mWifiName)){
-            vWifiName.setText("Wifi名称:"+mWifiName);
-            vWifiPwd.setText("Wifi密码:"+mWifiPwd);
-        }else{
-            vWifiName.setVisibility(View.INVISIBLE);
-            vWifiPwd.setVisibility(View.INVISIBLE);
-            vWifiConnet.setVisibility(View.INVISIBLE);
-            vWifiConnectStatus.setVisibility(View.INVISIBLE);
-        }
-        findViewById(R.id.tv_wifi_on).setOnClickListener(this);
-        findViewById(R.id.tv_wifi_off).setOnClickListener(this);
-        findViewById(R.id.tv_sim_on).setOnClickListener(this);
-        findViewById(R.id.tv_sim_off).setOnClickListener(this);
+        mBlueName =  SystemUtils.getProp("persist.blue.name", "qssi");
+        vRecycler = findViewById(R.id.blue_list);
+        vRecycler.setLayoutManager(new LinearLayoutManager(this));
+
         findViewById(R.id.tv_gps).setOnClickListener(this);
-        findViewById(R.id.tv_blue_on).setOnClickListener(this);
-        findViewById(R.id.tv_blue_off).setOnClickListener(this);
         findViewById(R.id.tv_play).setOnClickListener(this);
         findViewById(R.id.tv_stop).setOnClickListener(this);
         findViewById(R.id.tv_close).setOnClickListener(this);
-        vWifiConnet.setOnClickListener(this);
 
         mwifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         mBlueAdapter = BluetoothAdapter.getDefaultAdapter();
@@ -107,18 +148,23 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
 
         //wifi
         wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-        String wifiEnable = SystemUtils.getProp("persist.wifi.enable", "true");
-        boolean enable = Boolean.valueOf(wifiEnable);
-        setWifiStatue(enable);
+        if(wifiManager.isWifiEnabled()){
+            vWifiStatue.setText("Wifi状态：已开启");
+            vWifiStatue.setTextColor(Color.parseColor("#000000"));
+            connectWifiPws(mWifiName,mWifiPwd);  //自动连接wifi
+        }else{
+            vWifiStatue.setText("Wifi状态：不可用,正在尝试开启");
+            vWifiStatue.setTextColor(Color.parseColor("#FF0000"));
+            setWifiStatue(true);
+        }
 
         //blue
-        String blueEnable = SystemUtils.getProp("persist.blue.enable", "true");
-        setBlueStatue(Boolean.valueOf(blueEnable));
+        setBlueStatue();
 
         //gps
         LocationHelper.getInstance(this).setListenerGpsCallbacks(this);
         mGpsStatue = LocationHelper.getInstance(this).requestLocation();
-        vGpsStatue.setText("状态："+(mGpsStatue ? "正常":"不正常"));
+        vGpsStatue.setText("GPS状态："+(mGpsStatue ? "正常":"不正常"));
 
         //SIM卡
         loadSimCard();
@@ -137,9 +183,50 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
         if(isstart){
             mMediaPlayer.start();
         }
-
     }
 
+    private void connectBlue(String address){
+        // 创建一个 UUID 对象
+        UUID uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+        // 创建一个 BluetoothDevice 对象
+        BluetoothDevice device = mBlueAdapter.getRemoteDevice(address);
+        Log.d("===zxd","开始连接，Address"+address+",device="+device.getName());
+        // 创建一个 BluetoothSocket 对象
+        BluetoothSocket socket = null;
+        try {
+            socket = device.createRfcommSocketToServiceRecord(uuid);
+            socket.connect();
+        } catch (Exception e) {
+            e.printStackTrace();
+            Log.d("===zxd","开始连接，Exception="+e.getMessage());
+        }
+    }
+
+    private void searchBlueDevices(){
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(BluetoothDevice.ACTION_FOUND);
+        filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        registerReceiver(mReceiver, filter);
+        //开始扫描
+        mBlueAdapter.startDiscovery();
+        Log.d("===zxd","开始扫描，状态:"+mBlueAdapter.getState());
+    }
+
+    //开始收索 搜索接收函数：
+    BroadcastReceiver mReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                blueList.put(device.getAddress(),device.getName());
+            }else if(BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)){ //连接成功
+                Log.d("===zxd","blue连接成功");
+            }else if(BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)){
+
+            }
+        }
+    };
     private PhoneStateListener mPhoneStateListener = new PhoneStateListener() {
         @Override
         public void onSignalStrengthsChanged(@NonNull SignalStrength signalStrength) {
@@ -149,11 +236,7 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
             }
             String simOperatorName = SystemUtils.getSimOperatorName(SystemUtilsActivity.this);
             if(SystemUtils.hasSimCard(SystemUtilsActivity.this)){
-                if(TextUtils.isEmpty(simOperatorName)){
-                    vSimStatue.setText("未知运营商");
-                }else{
-                    vSimStatue.setText(simOperatorName);
-                }
+                vSimStatue.setText("已插卡");
                 vSimStatue.setTextColor(Color.parseColor("#000000"));
                 vSimIcon.setVisibility(View.VISIBLE);
             }else{
@@ -174,14 +257,9 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
     private void loadSimCard(){
         if(SystemUtils.hasSimCard(this)){
             String simOperatorName = SystemUtils.getSimOperatorName(this);
-            if(TextUtils.isEmpty(simOperatorName)){
-                vSimStatue.setText("未知运营商");
-            }else{
-                vSimStatue.setText(simOperatorName);
-            }
+            vSimStatue.setText("已插卡");
             vSimStatue.setTextColor(Color.parseColor("#000000"));
-            //自动打开移动数据
-            findViewById(R.id.tv_sim_on).performClick();
+            SystemUtils.setMobileDataEnabled(true,this);
         }else{
             vSimStatue.setText("未检测到SIM卡");
             vSimStatue.setTextColor(Color.parseColor("#FF0000"));
@@ -194,53 +272,32 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
             @Override
             public void run() {
                 if(mwifiManager.isWifiEnabled()){
-                    vWifiStatue.setText("状态:已开启");
+                    vWifiStatue.setText("Wifi状态：已开启");
                     vWifiStatue.setTextColor(Color.parseColor("#000000"));
                     connectWifiPws(mWifiName,mWifiPwd);  //自动连接wifi
                 }else{
-                    vWifiStatue.setText("状态:已关闭");
+                    vWifiStatue.setText("Wifi状态：不可用.");
                     vWifiStatue.setTextColor(Color.parseColor("#FF0000"));
                 }
-                SystemUtils.setProp("persist.wifi.enable", enable+"");
             }
         },2000);
     }
-    private void setBlueStatue(boolean enable){
-        if(enable){
-            mBlueAdapter.enable();
+    private void setBlueStatue(){
+        if(mBlueAdapter.isEnabled()){
+            vBlueStatue.setText("Blue状态：已开启");
+            vBlueStatue.setTextColor(Color.parseColor("#000000"));
+            mHandler.sendEmptyMessageDelayed(BLUE_START_SCAN,1000);
         }else{
-            mBlueAdapter.disable();
+            mBlueAdapter.enable();
+            vBlueStatue.setText("Blue状态：不可用，正在尝试打开");
+            vBlueStatue.setTextColor(Color.parseColor("#FF0000"));
+            mHandler.sendEmptyMessageDelayed(BLUE_RETRY,3000);
         }
-        vWifiStatue.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if(mBlueAdapter.isEnabled()){
-                    vBlueStatue.setText("状态:已开启");
-                    vBlueStatue.setTextColor(Color.parseColor("#000000"));
-                }else{
-                    vBlueStatue.setText("状态:已关闭");
-                    vBlueStatue.setTextColor(Color.parseColor("#FF0000"));
-                }
-                SystemUtils.setProp("persist.blue.enable", enable+"");
-            }
-        },2000);
     }
     @Override
     public void onClick(View v) {
         switch (v.getId()){
-            case R.id.tv_wifi_on:  //打开wifi
-                setWifiStatue(true);
-                break;
-            case R.id.tv_wifi_off:  //关闭wifi
-                setWifiStatue(false);
-                break;
-            case R.id.tv_blue_on:    //打开蓝牙
-                setBlueStatue(true);
-                break;
-            case R.id.tv_blue_off:   //关闭蓝牙
-                setBlueStatue(false);
-                break;
-            case R.id.tv_sim_on:    //打开移动数据
+            /*case R.id.tv_sim_on:    //打开移动数据
                 if(SystemUtils.hasSimCard(this)){
                     //开启移动数据
                     SystemUtils.setMobileDataEnabled(true, this);
@@ -255,7 +312,7 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                     vSimIcon.setImageDrawable(getDrawable(R.drawable.sim_signal));
                     vSimIcon.getDrawable().setLevel(currentLevel);
                 }
-                break;
+                break;*/
             case R.id.tv_gps:   //打开GPS
             case R.id.tv_gps_info:   //打开GPS
                 SystemUtils.RunApp(this,"com.chartcross.gpstest");
@@ -268,10 +325,7 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                 break;
             case R.id.tv_close:
                 finish();
-                //System.exit(0);
-                break;
-            case R.id.tv_connect_wifi:  //连接wifi
-                connectWifiPws(mWifiName,mWifiPwd);
+                System.exit(0);
                 break;
         }
     }
@@ -301,22 +355,6 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
         }
     }
 
-    public boolean connectWifi(int wifiId) {
-        if (wifiId == wifiManager.getConnectionInfo().getNetworkId()) {
-            return false;
-        }
-        /*for (int i = 0; i < wifiConfigList.size(); i++) {
-            WifiConfiguration wifi = wifiConfigList.get(i);
-            Log.d("===zxd", "wifiConfiguration:" + wifi.toString());
-            if (wifi.networkId == wifiId) {
-                // activie the wifiID and connect.
-                while (!(wifiManager.enableNetwork(wifiId, true))) {}
-                wifiManager.saveConfiguration();
-                return true;
-            }
-        }*/
-        return false;
-    }
 
     public void connectWifiPws(String ssid, String pws) {
         if(pws.length() < 8){
@@ -350,12 +388,11 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                         vWifiConnectStatus.setTextColor(Color.parseColor("#FF0000"));
                     }
                 }else if(action.equals(ConnectivityManager.CONNECTIVITY_ACTION) && WifiUtils.isNetworkAvailable(context)){
-                    Toast.makeText(SystemUtilsActivity.this,"连接成功："+mWifiName,Toast.LENGTH_LONG).show();
-                    vWifiStatue.setText("连接成功:"+mWifiName);
-                    vWifiStatue.setTextColor(Color.parseColor("#000000"));
-                }else{
-                    vWifiConnectStatus.setText("未连接");
-                    vWifiConnectStatus.setTextColor(Color.parseColor("#FF0000"));
+                    if(TextUtils.isEmpty(mWifiName)){
+                        mWifiName = wifiManager.getConnectionInfo().getSSID();
+                    }
+                    vWifiName.setText("已连接:"+mWifiName);
+                    vWifiName.setTextColor(Color.parseColor("#000000"));
                 }
             }catch (Exception e){
                 e.printStackTrace();
@@ -373,5 +410,6 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
     protected void onDestroy() {
         super.onDestroy();
         LocationHelper.getInstance(this).removeLocation();
+        unregisterReceiver(mReceiver);
     }
 }

@@ -3,6 +3,9 @@
   <component name="DesignSurface">
     <option name="filePathToZoomLevelMap">
       <map>
+        <entry key="..\:/JZDemo/app/src/main/res/layout/activity_main.xml" value="0.13697916666666668" />
+        <entry key="..\:/JZDemo/app/src/main/res/layout/activity_system_utils.xml" value="0.13697916666666668" />
+        <entry key="..\:/JZDemo/app/src/main/res/layout/item.xml" value="0.1359375" />
         <entry key="..\:/project/app/src/main/res/drawable/btn_nor.xml" value="0.18" />
         <entry key="..\:/project/app/src/main/res/drawable/btn_sel.xml" value="0.181" />
         <entry key="..\:/project/app/src/main/res/drawable/selector_btn.xml" value="0.181" />
