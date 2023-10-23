@@ -180,6 +180,8 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                 vSimStatue.setText(simOperatorName);
             }
             vSimStatue.setTextColor(Color.parseColor("#000000"));
+            //自动打开移动数据
+            findViewById(R.id.tv_sim_on).performClick();
         }else{
             vSimStatue.setText("未检测到SIM卡");
             vSimStatue.setTextColor(Color.parseColor("#FF0000"));
