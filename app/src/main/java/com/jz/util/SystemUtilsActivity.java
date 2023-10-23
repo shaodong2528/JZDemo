@@ -194,13 +194,14 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                 if(mwifiManager.isWifiEnabled()){
                     vWifiStatue.setText("状态:已开启");
                     vWifiStatue.setTextColor(Color.parseColor("#000000"));
+                    connectWifiPws(mWifiName,mWifiPwd);  //自动连接wifi
                 }else{
                     vWifiStatue.setText("状态:已关闭");
                     vWifiStatue.setTextColor(Color.parseColor("#FF0000"));
                 }
                 SystemUtils.setProp("persist.wifi.enable", enable+"");
             }
-        },1000);
+        },2000);
     }
     private void setBlueStatue(boolean enable){
         if(enable){
@@ -220,7 +221,7 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                 }
                 SystemUtils.setProp("persist.blue.enable", enable+"");
             }
-        },1000);
+        },2000);
     }
     @Override
     public void onClick(View v) {
@@ -347,9 +348,9 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                         vWifiConnectStatus.setTextColor(Color.parseColor("#FF0000"));
                     }
                 }else if(action.equals(ConnectivityManager.CONNECTIVITY_ACTION) && WifiUtils.isNetworkAvailable(context)){
-                    Toast.makeText(SystemUtilsActivity.this,"连接成功",Toast.LENGTH_LONG).show();
-                    vWifiConnectStatus.setText("已连接");
-                    vWifiConnectStatus.setTextColor(Color.parseColor("#000000"));
+                    Toast.makeText(SystemUtilsActivity.this,"连接成功："+mWifiName,Toast.LENGTH_LONG).show();
+                    vWifiStatue.setText("连接成功:"+mWifiName);
+                    vWifiStatue.setTextColor(Color.parseColor("#000000"));
                 }else{
                     vWifiConnectStatus.setText("未连接");
                     vWifiConnectStatus.setTextColor(Color.parseColor("#FF0000"));
