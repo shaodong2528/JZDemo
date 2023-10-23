@@ -88,7 +88,6 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                 case BLUE_STOP_SCAN:    //停止扫描
                     mBlueAdapter.cancelDiscovery();
                     if(blueList.size()==0){
-                        Toast.makeText(SystemUtilsActivity.this,"重新扫描",Toast.LENGTH_LONG).show();
                         mBlueAdapter.startDiscovery();
                         mHandler.sendEmptyMessageDelayed(BLUE_STOP_SCAN,5000);
                     }else{
