@@ -399,12 +399,16 @@ public class SystemUtils {
     @RequiresApi(api = Build.VERSION_CODES.O)
     @SuppressLint("MissingPermission")
     public static boolean isMobileDataEnable(Context mContext) {
-        TelephonyManager telephonyManager = null;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            telephonyManager = getTelephonyManager(mContext);
-        }
-        if(telephonyManager != null) {
-            return telephonyManager.isDataEnabled();
+        try {
+            TelephonyManager telephonyManager = null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                telephonyManager = getTelephonyManager(mContext);
+            }
+            if(telephonyManager != null) {
+                return telephonyManager.isDataEnabled();
+            }
+        }catch (Exception e){
+            e.printStackTrace();
         }
         return false;
     }

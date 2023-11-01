@@ -65,9 +65,11 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
     private final int BLUE_START_SCAN = 0;
     private final int BLUE_STOP_SCAN = 1;
     private final int BLUE_RETRY = 2;
+    private final int MSG_MOBILE_DATA = 3;
     private String mAddress;
     private Map<String,String> blueList = new HashMap<>();
     private RecyclerView vRecycler;
+    private TextView vSimEnable;
     private Handler mHandler = new Handler(){
         @Override
         public void handleMessage(@NonNull Message msg) {
@@ -99,6 +101,15 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                         vRecycler.setAdapter(new BlueAdapter(lists,SystemUtilsActivity.this));
                     }
                     break;
+                case MSG_MOBILE_DATA:   //检测移动数据是否开启
+                    if(SystemUtils.hasSimCard(SystemUtilsActivity.this)){
+                        if(SystemUtils.isMobileDataEnable(SystemUtilsActivity.this)){
+                            vSimEnable.setText("Sim卡状态:移动数据已开启");
+                        }else{
+                            vSimEnable.setText("Sim卡状态:移动数据未开启！");
+                        }
+                    }
+                    break;
             }
         }
     };
@@ -119,6 +130,7 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
         vBlueStatue = findViewById(R.id.tv_blue_statue);
         vGpsNum = findViewById(R.id.tv_gps_info);
         vGpsStatue = findViewById(R.id.tv_gps);
+        vSimEnable = findViewById(R.id.tv_sim_enable);
         vSimStatue = findViewById(R.id.tv_sim_sing);
         vSimIcon = findViewById(R.id.sim_icon);
         vWifiName = findViewById(R.id.tv_wifi_name);
@@ -132,7 +144,6 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
         findViewById(R.id.tv_play).setOnClickListener(this);
         findViewById(R.id.tv_stop).setOnClickListener(this);
         findViewById(R.id.tv_close).setOnClickListener(this);
-
         mwifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         mBlueAdapter = BluetoothAdapter.getDefaultAdapter();
         initData();
@@ -238,27 +249,40 @@ public class SystemUtilsActivity extends AppCompatActivity implements View.OnCli
                 vSimStatue.setText("已插卡");
                 vSimStatue.setTextColor(Color.parseColor("#000000"));
                 vSimIcon.setVisibility(View.VISIBLE);
+                if(SystemUtils.isDataEnabled(SystemUtilsActivity.this)){
+                    vSimEnable.setText("Sim卡状态:移动数据已开启");
+                    vSimIcon.setImageDrawable(getDrawable(R.drawable.sim_lte));
+                    vSimIcon.getDrawable().setLevel(currentLevel);
+                }else{
+                    vSimEnable.setText("Sim卡状态:移动数据未开启！尝试开启中");
+                    SystemUtils.setMobileDataEnabled(true,SystemUtilsActivity.this);
+                    vSimIcon.setImageDrawable(getDrawable(R.drawable.sim_signal));
+                    vSimIcon.getDrawable().setLevel(currentLevel);
+                    mHandler.removeMessages(MSG_MOBILE_DATA);
+                    mHandler.sendEmptyMessageDelayed(MSG_MOBILE_DATA,2000);
+                }
             }else{
+                vSimEnable.setText("Sim卡状态:");
                 vSimStatue.setText("未检测到SIM卡");
                 vSimStatue.setTextColor(Color.parseColor("#ff0000"));
                 vSimIcon.setVisibility(View.GONE);
-            }
-            if(SystemUtils.isDataEnabled(SystemUtilsActivity.this)){
-                vSimIcon.setImageDrawable(getDrawable(R.drawable.sim_lte));
-                vSimIcon.getDrawable().setLevel(currentLevel);
-            }else{
-                vSimIcon.setImageDrawable(getDrawable(R.drawable.sim_signal));
-                vSimIcon.getDrawable().setLevel(currentLevel);
             }
         }
     };
 
     private void loadSimCard(){
         if(SystemUtils.hasSimCard(this)){
+            if(SystemUtils.isMobileDataEnable(this)){
+                vSimEnable.setText("Sim卡状态:移动数据已开启");
+            }else{
+                vSimEnable.setText("Sim卡状态:移动数据未开启！,尝试开启中");
+                SystemUtils.setMobileDataEnabled(true,this);
+                mHandler.sendEmptyMessageDelayed(MSG_MOBILE_DATA,2000);
+            }
             String simOperatorName = SystemUtils.getSimOperatorName(this);
             vSimStatue.setText("已插卡");
             vSimStatue.setTextColor(Color.parseColor("#000000"));
-            SystemUtils.setMobileDataEnabled(true,this);
+
         }else{
             vSimStatue.setText("未检测到SIM卡");
             vSimStatue.setTextColor(Color.parseColor("#FF0000"));
